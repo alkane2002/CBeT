@@ -96,6 +96,7 @@ class FocalLoss(nn.Module):
         return f"{type(self).__name__}({arg_str})"
 
     def forward(self, x: Tensor, y: Tensor) -> Tensor:
+        # x: [512, 64]; y:[1280]
         if x.ndim > 2:
             # (N, C, d1, d2, ..., dK) --> (N * d1 * ... * dK, C)
             c = x.shape[1]

@@ -3,7 +3,7 @@ args: []
 kwargs: {}
 obs_dim: 60
 goal_dim: 7
-action_dim: 9
+action_dim: 7
 action_min: null
 action_max: null
 

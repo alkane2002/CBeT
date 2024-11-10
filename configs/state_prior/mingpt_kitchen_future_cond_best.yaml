@@ -1,21 +1,37 @@
 _target_: models.latent_generators.mingpt.MinGPT
 
-discrete_input: false
-input_dim: ${encoder.output_dim}
+# discrete_input: false
+# input_dim: ${encoder.output_dim}
 
-vocab_size: ??? # TBD by the discretization model.
+# vocab_size: ??? # TBD by the discretization model.
 
-# Architecture details
+# # Architecture details
+# n_layer: 6
+# n_head: 6
+# n_embd: 120
+# n_embd_is_per_head: False
+
+# block_size: ${window_size} # Length of history/context
+# predict_offsets: True
+# offset_loss_scale: 1000.0
+# focal_loss_gamma: 2.0
+# action_dim: ${env.action_dim}
+# goal_conditional: concat # prepend
+# goal_dim: ${env.goal_dim}
+# goal_seq_len: ${goal_seq_len}
+
+discrete_input: False
+input_dim: 73 # maybe change
 n_layer: 6
 n_head: 6
 n_embd: 120
 n_embd_is_per_head: False
-
-block_size: ${window_size} # Length of history/context
+block_size: 2 # Length of history/context
 predict_offsets: True
 offset_loss_scale: 1000.0
 focal_loss_gamma: 2.0
-action_dim: ${env.action_dim}
-goal_conditional: prepend
-goal_dim: ${env.goal_dim}
-goal_seq_len: ${goal_seq_len}
+action_dim: 7
+goal_conditional: "concat" # prepend
+goal_dim: 64
+goal_seq_len: 2
+vocab_size: ??? # TBD by the discretization model.

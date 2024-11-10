@@ -9,7 +9,7 @@ class resnet18(nn.Module):
         self,
         pretrained: bool = True,
         freeze_pretrained: bool = True,
-        output_dim: int = 512,  # fixed for resnet18; included for consistency with config
+        output_dim: int = 64,  # fixed for resnet18 (512); included for consistency with config
     ):
         super().__init__()
         resnet = torchvision.models.resnet18(pretrained=pretrained)
@@ -22,6 +22,8 @@ class resnet18(nn.Module):
         self.normalize = torchvision.transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         )
+        self.output_dim = output_dim
+        self.encoder = nn.Linear(512, output_dim)
 
     def forward(self, x):
         # if NTCHW, flatten to NCHW first
@@ -33,6 +35,7 @@ class resnet18(nn.Module):
         x = self.normalize(x)
         out = self.resnet(x)
         out = self.flatten(out)
+        out = self.encoder(out)
         if is_seq:
             out = rearrange(out, "(n t) e -> n t e", n=n, t=t)
         return out

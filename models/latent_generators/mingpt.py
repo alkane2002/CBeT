@@ -1,3 +1,6 @@
+# import sys
+# sys.path.insert(-1, "/media/disk4/wtyao/baselines/cbet/play-to-policy")
+
 from matplotlib.pyplot import cla
 import torch
 import torch.nn as nn
@@ -13,6 +16,8 @@ from models.libraries.loss_fn import FocalLoss, soft_cross_entropy
 from typing import Optional, Tuple
 from utils import batch_indexing
 
+from models.resnet import resnet18
+from typing import Union, Dict
 
 class MinGPT(latent_generator.AbstractLatentGenerator):
     def __init__(
@@ -76,6 +81,7 @@ class MinGPT(latent_generator.AbstractLatentGenerator):
         if self.predict_offsets:
             effective_vocab_size += self.vocab_size * self.action_dim
 
+
         effective_block_size = self.block_size
         if self.goal_conditional == "prepend":
             effective_block_size += self.goal_seq_len
@@ -98,10 +104,12 @@ class MinGPT(latent_generator.AbstractLatentGenerator):
         )
 
         self.model = mingpt_model.GPT(gpt_config)
+        self.resnet = resnet18()
+        x = 1
 
     def _predict(
         self,
-        obs_rep: torch.Tensor,
+        obs_rep: Union[torch.Tensor, Dict[str, torch.Tensor]],
         goal: Optional[torch.Tensor] = None,
     ):
         """
@@ -113,6 +121,16 @@ class MinGPT(latent_generator.AbstractLatentGenerator):
         Returns:
             A batch of predicted actions.
         """
+        # These following codes are for modifying the input
+        if not hasattr(self, 'resnet') or self.resnet is None:
+            self.resnet = resnet18().to("cuda")
+            self.goal_conditional = "concat"
+
+        if isinstance(obs_rep, dict):
+            img_emb = self.resnet(obs_rep["imgs"]) # [256,2,64]
+            obs_rep = torch.cat([img_emb, obs_rep["obs"]], dim=-1) # [256,2,73]
+            goal = self.resnet(goal)
+
         if self.goal_conditional is not None:
             assert goal is not None, "goal must be specified for goal conditional"
             if self.goal_conditional == "prepend":
@@ -128,19 +146,21 @@ class MinGPT(latent_generator.AbstractLatentGenerator):
                     [goal, obs_rep], dim=1
                 )  # [N, goal_seq_len + T, obs_dim]
             elif self.goal_conditional == "concat":
-                is_valid_goal_shape = (
-                    goal.shape[0] == obs_rep.shape[0]
-                    and goal.shape[1] == obs_rep.shape[1]
-                    and goal.shape[-1] == self.goal_dim
-                )
-                assert (
-                    is_valid_goal_shape
-                ), "concat goal must have shape [batch_size, T, goal_dim]"
+                # is_valid_goal_shape = (
+                #     goal.shape[0] == obs_rep.shape[0]
+                #     and goal.shape[1] == obs_rep.shape[1]
+                #     and goal.shape[-1] == self.goal_dim
+                # )
+                # assert (
+                #     is_valid_goal_shape
+                # ), "concat goal must have shape [batch_size, T, goal_dim]"
+                # input = torch.cat([obs_rep, goal], dim=2)
+                goal = goal.unsqueeze(1).expand(-1, obs_rep.shape[1], -1)
                 input = torch.cat([obs_rep, goal], dim=2)
         else:
             assert goal is None, "goal must be None for non-goal conditional"
             input = obs_rep
-        output, _ = self.model(input)
+        output, _ = self.model(input) # [256,2,512]
         if self.goal_conditional == "prepend":
             output = output[:, self.goal_seq_len :, :]  # [N, T, *]
         if self.predict_offsets:
@@ -152,7 +172,7 @@ class MinGPT(latent_generator.AbstractLatentGenerator):
                 V=self.vocab_size,
                 A=self.action_dim,
             )
-            return logits, offsets
+            return logits, offsets # ([256, 2, 64], [256, 2, 64, 7])
         else:
             return output
 
@@ -197,13 +217,13 @@ class MinGPT(latent_generator.AbstractLatentGenerator):
 
     def get_latent_and_loss(
         self,
-        obs_rep: torch.Tensor,
+        obs_rep: Union[torch.Tensor, Dict[str, torch.Tensor]],
         target_latents: torch.Tensor,
         seq_masks: Optional[torch.Tensor] = None,
         goal: Optional[torch.Tensor] = None,
         return_loss_components: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        output = self._predict(obs_rep, goal)
+        output = self._predict(obs_rep, goal) # ([64,10,64], [64,10,64,9]) -> ([256, 2, 64], [256, 2, 64, 7])
         loss, loss_components = self._calc_loss(output, target_latents)
         if return_loss_components:
             return output, loss, loss_components
@@ -212,13 +232,14 @@ class MinGPT(latent_generator.AbstractLatentGenerator):
 
     def generate_latents(
         self,
-        seq_obses: torch.Tensor,
-        seq_masks: torch.Tensor,
+        obs_rep: Union[torch.Tensor, Dict[str, torch.Tensor]],
+        seq_masks: Optional[torch.Tensor] = None,
         goal: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        obs_rep = einops.rearrange(seq_obses, "T N E -> N T E")
-        if goal is not None:
-            goal = einops.rearrange(goal, "T N G -> N T G")
+        # obs_rep = einops.rearrange(seq_obses, "T N E -> N T E")
+        # if goal is not None:
+        #     goal = einops.rearrange(goal, "T N G -> N T G")
+
         output = self._predict(obs_rep, goal)
         if self.predict_offsets:
             logits, offsets = output
@@ -237,4 +258,38 @@ class MinGPT(latent_generator.AbstractLatentGenerator):
         trainer_cfg = mingpt_trainer.TrainerConfig(
             weight_decay=weight_decay, learning_rate=learning_rate, betas=betas
         )
-        return self.model.configure_optimizers(trainer_cfg)
+        optimizer = self.model.configure_optimizers(trainer_cfg)
+        optimizer.add_param_group({"params": self.resnet.parameters()})
+        return optimizer
+
+
+if __name__=="__main__":
+    device = "cuda"
+    obs_propri = torch.randn(256, 2, 9)
+    imgs = torch.randn(256, 2, 3, 128, 128)
+    goal = torch.randn(256, 3, 128, 128)
+    actions = torch.randn(256, 5, 7)
+    obs_rep = {"imgs": imgs.to(device), "obs": obs_propri.to(device)}
+    goal = goal.to(device)
+
+    model = MinGPT(discrete_input = False,
+            input_dim = 73, # maybe change
+            n_layer = 6,
+            n_head = 6,
+            n_embd = 120,
+            n_embd_is_per_head = False,
+            block_size = 2, # Length of history/context
+            predict_offsets = True,
+            offset_loss_scale = 1000.0,
+            focal_loss_gamma = 2.0,
+            action_dim = 7,
+            goal_conditional = "concat", # prepend
+            goal_dim = 64,
+            goal_seq_len = 2,).to(device)
+
+    x = 1
+    
+    output = model._predict(obs_rep, goal) # ([256, 2, 64], [256, 2, 64, 7])
+    x = 1
+    # input = torch.rand(256,2,137)
+    # output, _ = self.model(input)

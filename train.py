@@ -18,7 +18,7 @@ from hydra.types import RunMode
 import utils
 import wandb
 
-
+# os.environ['CUDA_VISIBLE_DEVICES'] = 0
 os.environ["WANDB_START_METHOD"] = "thread"
 
 

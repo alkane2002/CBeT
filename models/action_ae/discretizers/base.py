@@ -31,10 +31,11 @@ class AbstractDiscretizer(AbstractActionAE, TrainWithLogger):
                 input_dataloader.dataset.get_all_actions()
             )  # N x T x action_dim
         else:
-            for _, action, _ in input_dataloader:
-                action_dim = action.shape[-1]
-                all_action_tensors.append(action.view(-1, action_dim))
-            all_action_tensors = torch.cat(all_action_tensors, dim=0)
+            all_action_tensors = torch.from_numpy(input_dataloader.dataset.normalized_train_data["actions"])
+            # for _, action, _ in input_dataloader:
+            #     action_dim = action.shape[-1]
+            #     all_action_tensors.append(action.view(-1, action_dim))
+            # all_action_tensors = torch.cat(all_action_tensors, dim=0)
         self.fit_discretizer(all_action_tensors)
 
     @abc.abstractmethod
